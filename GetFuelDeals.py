@@ -19,7 +19,7 @@ def fetch_data_with_curl(api_url, auth_token):
         return None
 
 
-def save_to_csv(data, filename="GetCottonDeals.csv"):
+def save_to_csv(data, filename="GetFuelDeals.csv"):
     if data:
         try:
             if isinstance(data, str):
@@ -40,7 +40,7 @@ def save_to_csv(data, filename="GetCottonDeals.csv"):
         return None
 
 
-def insert_cotton_deals_to_db(df, batch_size=500):
+def insert_fuel_deals_to_db(df, batch_size=500):
     try:
         conn = pyodbc.connect(
             "DRIVER={SQL Server};"
@@ -53,8 +53,8 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         cursor = conn.cursor()
 
         create_query = """
-        IF OBJECT_ID('dbo.CottonDeals', 'U') IS NULL
-        CREATE TABLE dbo.CottonDeals (
+        IF OBJECT_ID('dbo.FuelDeals', 'U') IS NULL
+        CREATE TABLE dbo.FuelDeals (
             deal_number INT,
             deal_date DATETIME,
             deal_type INT,
@@ -98,7 +98,7 @@ def insert_cotton_deals_to_db(df, batch_size=500):
             batch = records[i:i + batch_size]
             try:
                 cursor.executemany("""
-                    INSERT INTO dbo.CottonDeals (
+                    INSERT INTO dbo.FuelDeals (
                         deal_number, deal_date, deal_type, contract_number, seller_name,
                         seller_tin, seller_region, seller_district, product_name, deal_amount,
                         amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
@@ -111,23 +111,23 @@ def insert_cotton_deals_to_db(df, batch_size=500):
             except Exception as batch_error:
                 print(f"⚠️ Batch skip qilindi: {batch_error}")
 
-        print(f"✅ Jami {total} qator CottonDeals ga yozildi.")
+        print(f"✅ Jami {total} qator FuelDeals ga yozildi.")
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"❌ CottonDeals DB xatolik: {e}")
+        print(f"❌ FuelDeals DB xatolik: {e}")
 
 
 if __name__ == "__main__":
     BEGINDATE = "2024-01-01"
     ENDDATE = datetime.today().strftime("%Y-%m-%d")
-    API_URL = f"http://172.16.14.21:4041/GetCottonDeals/{BEGINDATE}/{ENDDATE}"
+    API_URL = f"http://172.16.14.21:4041/GetFuelDeals/{BEGINDATE}/{ENDDATE}"
     AUTH_TOKEN = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
 
     data = fetch_data_with_curl(API_URL, AUTH_TOKEN)
     df = save_to_csv(data)
 
     if df is not None and not df.empty:
-        insert_cotton_deals_to_db(df)
+        insert_fuel_deals_to_db(df)
     else:
         print("⚠️ Ma’lumot bo‘sh yoki CSV xatolik.")
