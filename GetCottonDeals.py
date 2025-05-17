@@ -52,10 +52,9 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         )
         cursor = conn.cursor()
 
-        # Jadvalni yaratish (agar mavjud bo‘lmasa)
         create_query = """
-        IF OBJECT_ID('dbo.GetCottonDeals', 'U') IS NULL
-        CREATE TABLE dbo.GetCottonDeals (
+        IF OBJECT_ID('dbo.CottonDeals', 'U') IS NULL
+        CREATE TABLE dbo.CottonDeals (
             deal_number INT,
             deal_date DATETIME,
             deal_type INT,
@@ -81,7 +80,6 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         cursor.execute(create_query)
         conn.commit()
 
-        # Data cleaning
         df = df.fillna("")
         df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
 
@@ -96,7 +94,7 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             cursor.executemany("""
-                INSERT INTO dbo.GetCottonDeals (
+                INSERT INTO dbo.CottonDeals (
                     deal_number, deal_date, deal_type, contract_number, seller_name,
                     seller_tin, seller_region, seller_district, product_name, deal_amount,
                     amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
@@ -116,7 +114,9 @@ def insert_cotton_deals_to_db(df, batch_size=500):
 
 
 if __name__ == "__main__":
-    API_URL = "http://172.16.14.21:4041/GetCottonDeals"
+    BEGINDATE = "2024-01-01"
+    ENDDATE = datetime.today().strftime("%Y-%m-%d")
+    API_URL = f"http://172.16.14.21:4041/GetCottonDeals/{BEGINDATE}/{ENDDATE}"
     AUTH_TOKEN = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
 
     data = fetch_data_with_curl(API_URL, AUTH_TOKEN)
