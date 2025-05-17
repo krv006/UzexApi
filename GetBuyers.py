@@ -1,22 +1,7 @@
 import json
 import subprocess
-import time
 import pandas as pd
 import pyodbc
-
-
-def connect_vpn(server, username, password):
-    try:
-        subprocess.run('rasdial "MyVPN" /disconnect', shell=True, capture_output=True, text=True)
-        time.sleep(2)
-        connect_command = f'rasdial "MyVPN" {username} {password}'
-        process = subprocess.run(connect_command, shell=True, capture_output=True, text=True, encoding="utf-8")
-        if "connected" in process.stdout.lower():
-            print("✅ VPN ulanishi muvaffaqiyatli!")
-        else:
-            print(f"❌ VPN ulanishda xatolik: {process.stdout or process.stderr}")
-    except Exception as e:
-        print(f"❌ VPN xatolik: {e}")
 
 
 def fetch_data_with_curl(api_url, auth_token):
@@ -66,10 +51,10 @@ def insert_buyers_to_db(df):
         )
         cursor = conn.cursor()
 
-        # Jadval yaratish
+        # Table yaratish
         create_query = """
-        IF OBJECT_ID('dbo.Buyers', 'U') IS NULL
-        CREATE TABLE dbo.Buyers (
+        IF OBJECT_ID('dbo.GetBuyers', 'U') IS NULL
+        CREATE TABLE dbo.GetBuyers (
             cluster_name NVARCHAR(255),
             cluster_tin NVARCHAR(20),
             cluster_type INT,
@@ -94,7 +79,7 @@ def insert_buyers_to_db(df):
         conn.commit()
 
         # Eski ma'lumotlarni o‘chirish
-        cursor.execute("TRUNCATE TABLE dbo.Buyers")
+        cursor.execute("TRUNCATE TABLE dbo.GetBuyers")
         conn.commit()
         print("🧹 Eski Buyers ma’lumotlari o‘chirildi.")
 
@@ -114,7 +99,7 @@ def insert_buyers_to_db(df):
         records = df.values.tolist()
         cursor.fast_executemany = True
         cursor.executemany("""
-            INSERT INTO dbo.Buyers (
+            INSERT INTO dbo.GetBuyers (
                 cluster_name, cluster_tin, cluster_type, crop_id, cluster_id,
                 cluster_region1, cluster_region2, cluster_region3, cluster_region4, cluster_region5,
                 cluster_region6, cluster_region7, cluster_region8, cluster_region9, cluster_region10,
@@ -131,10 +116,14 @@ def insert_buyers_to_db(df):
 
 
 if __name__ == "__main__":
-    VPN_SERVER = "kvpnn.uzex.uz"
-    VPN_USERNAME = "n.jumabayev"
-    VPN_PASSWORD = "bgtyhn@123"
     API_URL = "http://172.16.14.21:4041/GetBuyers"
     AUTH_TOKEN = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
 
-    connect_vpn(VPN_SERVER, VPN_USERNAME, VPN_PASSWORD)
+    data = fetch_data_with_curl(API_URL, AUTH_TOKEN)
+
+    df = save_to_csv(data)
+
+    if df is not None and not df.empty:
+        insert_buyers_to_db(df)
+    else:
+        print("⚠️ Ma’lumot bo‘sh yoki CSV xatolik.")
