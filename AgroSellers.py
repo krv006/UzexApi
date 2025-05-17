@@ -1,68 +1,62 @@
 import json
 import subprocess
+import time
+
 import pandas as pd
 import pyodbc
 
 
+def connect_vpn(server, username, password):
+    try:
+        subprocess.run('rasdial "MyVPN" /disconnect', shell=True, capture_output=True, text=True)
+        time.sleep(2)
+        connect_command = f'rasdial "MyVPN" {username} {password}'
+        process = subprocess.run(connect_command, shell=True, capture_output=True, text=True, encoding="utf-8")
+        if "connected" in process.stdout.lower():
+            print("✅ VPN ulanishi muvaffaqiyatli!")
+        else:
+            print(f"❌ VPN ulanishda xatolik: {process.stdout or process.stderr}")
+    except Exception as e:
+        print(f"❌ VPN xatolik: {e}")
+
+
 def fetch_data_with_curl(api_url, auth_token):
-    """API dan curl orqali ma'lumot olish."""
     try:
         command = f'curl -X GET "{api_url}" -H "accept: text/plain" -H "Authorization: {auth_token}"'
-        process = subprocess.run(command, shell=True, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-
+        process = subprocess.run(command, shell=True, capture_output=True, text=True, encoding="utf-8")
         if process.returncode == 0:
-            response = process.stdout.strip()
-
-            # 🔎 API dan kelgan javobni tekshirish uchun faylga yozamiz
-            with open("api_debug.txt", "w", encoding="utf-8") as f:
-                f.write(response)
-
-            if response:
-                print("✅ API dan ma'lumot olindi.")
-                return response
-            else:
-                print("❌ API javobi bo‘sh!")
-                return None
+            return process.stdout
         else:
             print(f"❌ API xatolik: {process.stderr}")
             return None
     except Exception as e:
-        print(f"❌ API istisno: {e}")
+        print(f"❌ API xatolik: {e}")
         return None
 
 
 def save_to_csv(data, filename="GetAgroSellersTin.csv"):
-    """CSV faylga saqlash."""
     if data:
         try:
-            json_data = json.loads(data)
-            if isinstance(json_data, list):
-                df = pd.DataFrame(json_data)
+            if isinstance(data, str):
+                data = json.loads(data)
+            if isinstance(data, list):
+                df = pd.DataFrame(data)
                 df.to_csv(filename, index=False, encoding="utf-8-sig")
-                print(f"✅ CSV saqlandi: {filename}")
+                print(f"📁 CSV saqlandi: {filename}")
                 return df
             else:
-                print("❌ JSON format noto‘g‘ri (list emas)")
+                print("❌ JSON noto‘g‘ri formatda.")
                 return None
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON decode xatolik: {e}")
+        except json.JSONDecodeError:
+            print("❌ JSON decode error.")
             return None
     else:
-        print("❌ Ma'lumot yo‘q")
+        print("🚫 API'dan hech qanday ma'lumot kelmadi.")
         return None
 
 
-def save_to_db(df, table_name="AgroSellers"):
-    """SQL Server bazasiga saqlash."""
-    if df is None or df.empty:
-        print("❌ DB uchun ma'lumot mavjud emas.")
-        return
-
+def insert_to_db(df):
     try:
-        df = df.dropna(subset=["tin", "Year"])
-        df = df[~df["Year"].isin([float("inf"), float("-inf")])]
-        df["Year"] = df["Year"].astype(int)
-
         conn = pyodbc.connect(
             "DRIVER={ODBC Driver 17 for SQL Server};"
             "SERVER=192.168.111.14;"
@@ -72,28 +66,51 @@ def save_to_db(df, table_name="AgroSellers"):
             "Encrypt=yes;"
             "TrustServerCertificate=yes;"
         )
-
         cursor = conn.cursor()
 
-        for _, row in df.iterrows():
-            cursor.execute(f"""
-                IF NOT EXISTS (SELECT 1 FROM {table_name} WHERE tin = ?)
-                INSERT INTO {table_name} (tin, Year) VALUES (?, ?)
-            """, row["tin"], row["tin"], row["Year"])
-
+        # Table yaratish agar mavjud bo'lmasa
+        create_table_query = """
+        IF OBJECT_ID('dbo.AgroSellersTin', 'U') IS NULL
+        CREATE TABLE dbo.AgroSellersTin (
+            tin NVARCHAR(20),
+            Year FLOAT
+        )
+        """
+        cursor.execute(create_table_query)
         conn.commit()
+
+        # 🧼 Clean data
+        df = df[["tin", "Year"]].copy()
+        df["tin"] = df["tin"].astype(str)
+        df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+        df = df.dropna(subset=["tin", "Year"])
+
+        records = df.values.tolist()
+        cursor.fast_executemany = True
+        cursor.executemany("INSERT INTO dbo.AgroSellersTin (tin, Year) VALUES (?, ?)", records)
+        conn.commit()
+
+        print(f"✅ {len(records)} qator DB ga qo‘shildi.")
         cursor.close()
         conn.close()
-        print("✅ Ma'lumotlar SQL Serverga saqlandi!")
     except Exception as e:
-        print(f"❌ DB saqlashda xatolik: {e}")
+        print(f"❌ DB xatolik: {e}")
 
 
-# === MAIN ===
 if __name__ == "__main__":
-    api_url = "http://172.16.14.21:4041/GetAgroSellersTin"
-    auth_token = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
+    VPN_SERVER = "kvpnn.uzex.uz"
+    VPN_USERNAME = "n.jumabayev"
+    VPN_PASSWORD = "bgtyhn@123"
+    API_URL = "http://172.16.14.21:4041/GetAgroSellersTin"
+    AUTH_TOKEN = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
 
-    response = fetch_data_with_curl(api_url, auth_token)
-    df = save_to_csv(response)
-    save_to_db(df)
+    connect_vpn(VPN_SERVER, VPN_USERNAME, VPN_PASSWORD)
+
+    data = fetch_data_with_curl(API_URL, AUTH_TOKEN)
+
+    df = save_to_csv(data)
+
+    if df is not None and not df.empty:
+        insert_to_db(df)
+    else:
+        print("⚠️ Ma’lumot bo‘sh yoki CSV xatolik.")
