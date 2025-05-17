@@ -58,12 +58,11 @@ def save_to_csv(data, filename="GetAgroSellersTin.csv"):
 def insert_to_db(df):
     try:
         conn = pyodbc.connect(
-            "DRIVER={ODBC Driver 17 for SQL Server};"
+            "DRIVER={SQL Server};"  # <-- universal & xavfsiz driver
             "SERVER=192.168.111.14;"
             "DATABASE=Birja;"
             "UID=sa;"
             "PWD=AX8wFfMQrR6b9qdhHt2eYS;"
-            "Encrypt=yes;"
             "TrustServerCertificate=yes;"
         )
         cursor = conn.cursor()
@@ -78,6 +77,11 @@ def insert_to_db(df):
         """
         cursor.execute(create_table_query)
         conn.commit()
+
+        # 🔥 Eski malumotlarni o‘chirish
+        cursor.execute("TRUNCATE TABLE dbo.AgroSellersTin")
+        conn.commit()
+        print("🧹 Eski ma’lumotlar tozalandi.")
 
         # 🧼 Clean data
         df = df[["tin", "Year"]].copy()
