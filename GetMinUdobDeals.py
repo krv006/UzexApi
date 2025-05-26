@@ -2,8 +2,11 @@ import json
 import subprocess
 import pandas as pd
 import pyodbc
+import os
 from datetime import datetime, timedelta
 
+# CSV fayl nomi
+CSV_FILENAME = "GetMinUdobDeals.csv"
 
 def fetch_data_with_curl(api_url, auth_token):
     print(f"🌐 So‘rov yuborilmoqda: {api_url}")
@@ -20,8 +23,15 @@ def fetch_data_with_curl(api_url, auth_token):
         print(f"❌ API xatolik: {e}")
         return None
 
+def save_to_csv(df):
+    if df is not None and not df.empty:
+        file_exists = os.path.isfile(CSV_FILENAME)
+        df.to_csv(CSV_FILENAME, mode='a', index=False, encoding="utf-8-sig", header=not file_exists)
+        print(f"📁 Ma'lumotlar CSV faylga saqlandi: {CSV_FILENAME}")
+    else:
+        print("⚠️ Saqlash uchun ma'lumotlar mavjud emas.")
 
-def save_to_dataframe(data, beg_str=None):
+def save_to_dataframe(data):
     if data:
         try:
             if isinstance(data, str):
@@ -29,15 +39,6 @@ def save_to_dataframe(data, beg_str=None):
             if isinstance(data, list):
                 df = pd.DataFrame(data)
                 print(f"📊 Ma'lumotlar soni: {len(df)} qator")
-
-                # CSV saqlash
-                if beg_str:
-                    filename = f"GetMinUdobDeals_{beg_str[:7].replace('-', '_')}.csv"
-                else:
-                    filename = "GetMinUdobDeals.csv"
-                df.to_csv(filename, index=False, encoding="utf-8-sig")
-                print(f"📁 CSV saqlandi: {filename}")
-
                 return df
             else:
                 print("❌ JSON noto‘g‘ri format.")
@@ -48,7 +49,6 @@ def save_to_dataframe(data, beg_str=None):
     else:
         print("🚫 Ma’lumot yo‘q.")
         return None
-
 
 def insert_to_db(df, batch_size=500):
     print("🗃️ SQL Serverga yozish jarayoni boshlandi...")
@@ -141,7 +141,6 @@ def insert_to_db(df, batch_size=500):
     except Exception as e:
         print(f"❌ DB xatolik: {e}")
 
-
 def month_range(start_date, end_date):
     current = start_date
     while current <= end_date:
@@ -152,7 +151,6 @@ def month_range(start_date, end_date):
             end = current.replace(month=current.month + 1, day=1) - timedelta(days=1)
         yield start, end
         current = end + timedelta(days=1)
-
 
 if __name__ == "__main__":
     print("🚀 Oylik yuklash jarayoni boshlandi...")
@@ -168,9 +166,10 @@ if __name__ == "__main__":
 
         API_URL = f"http://172.16.14.21:4041/GetMinUdobDeals/{beg_str}/{end_str}"
         data = fetch_data_with_curl(API_URL, AUTH_TOKEN)
-        df = save_to_dataframe(data, beg_str=beg_str)
+        df = save_to_dataframe(data)
 
         if df is not None and not df.empty:
+            save_to_csv(df)
             insert_to_db(df)
         else:
             print("⚠️ Bu oyda hech qanday qator topilmadi.")
