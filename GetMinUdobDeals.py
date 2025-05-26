@@ -40,7 +40,7 @@ def save_to_csv(data, filename="GetMinUdobDeals.csv"):
         return None
 
 
-def insert_udob_deals_to_db(df, batch_size=500):
+def insert_udob_deals_full_to_db(df, batch_size=500):
     try:
         conn = pyodbc.connect(
             "DRIVER={SQL Server};"
@@ -52,10 +52,9 @@ def insert_udob_deals_to_db(df, batch_size=500):
         )
         cursor = conn.cursor()
 
-        # Create table if not exists
         create_query = """
-        IF OBJECT_ID('dbo.GetMinUdobDeals', 'U') IS NULL
-        CREATE TABLE dbo.GetMinUdobDeals (
+        IF OBJECT_ID('dbo.GetMinUdobDealsFull', 'U') IS NULL
+        CREATE TABLE dbo.GetMinUdobDealsFull (
             deal_number INT,
             deal_date DATETIME,
             deal_type INT,
@@ -75,41 +74,51 @@ def insert_udob_deals_to_db(df, batch_size=500):
             buyer_region NVARCHAR(500),
             register_id INT,
             deal_url NVARCHAR(500),
-            tnved NVARCHAR(500)
+            amount FLOAT,
+            startingpricefrombill FLOAT,
+            productamountbycoefficient FLOAT,
+            segmentgruppa NVARCHAR(500),
+            productunit NVARCHAR(500),
+            productgroup NVARCHAR(500),
+            productsubgroup NVARCHAR(500),
+            statline NVARCHAR(500)
         )
         """
         cursor.execute(create_query)
         conn.commit()
 
-        # Data cleaning
         df = df.fillna("")
         df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
 
-        numeric_cols = ["deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost", "deal_currency", "register_id"]
+        numeric_cols = [
+            "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost",
+            "deal_currency", "register_id", "amount", "startingpricefrombill", "productamountbycoefficient"
+        ]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
         records = df.values.tolist()
         cursor.fast_executemany = True
 
-        # Batching insert
         total = 0
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             cursor.executemany("""
-                INSERT INTO dbo.GetMinUdobDeals (
+                INSERT INTO dbo.GetMinUdobDealsFull (
                     deal_number, deal_date, deal_type, contract_number, seller_name,
                     seller_tin, seller_region, seller_district, product_name, deal_amount,
                     amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
-                    buyer_name, buyer_region, register_id, deal_url, tnved
+                    buyer_name, buyer_region, register_id, deal_url, amount,
+                    startingpricefrombill, productamountbycoefficient, segmentgruppa,
+                    productunit, productgroup, productsubgroup, statline
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, batch)
             conn.commit()
             total += len(batch)
             print(f"📥 {total} qator yozildi...")
 
-        print(f"✅ Jami {total} qator DB ga qo‘shildi.")
+        print(f"✅ Jami {total} qator GetMinUdobDealsFull ga yozildi.")
         cursor.close()
         conn.close()
     except Exception as e:
@@ -126,6 +135,6 @@ if __name__ == "__main__":
     df = save_to_csv(data)
 
     if df is not None and not df.empty:
-        insert_udob_deals_to_db(df)
+        insert_udob_deals_full_to_db(df)
     else:
         print("⚠️ Ma’lumot bo‘sh yoki CSV xatolik.")
