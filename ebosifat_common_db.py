@@ -60,19 +60,23 @@ def insert_to_db(df):
         cursor.execute(create_query)
         conn.commit()
 
-        # Malumotlarni INSERT INTO qilib yozamiz
         for idx, row in df.iterrows():
             try:
-                cursor.execute("""
-                    INSERT INTO dbo.Regions (id, nameUzLatn, soato)
-                    VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        nameUzLatn = VALUES(nameUzLatn),
-                        soato = VALUES(soato)
-                """, row['id'], row['nameUzLatn'], row['soato'])
+                merge_query = """
+                MERGE dbo.Regions AS target
+                USING (VALUES (?, ?, ?)) AS source (id, nameUzLatn, soato)
+                ON target.id = source.id
+                WHEN MATCHED THEN
+                    UPDATE SET 
+                        nameUzLatn = source.nameUzLatn,
+                        soato = source.soato
+                WHEN NOT MATCHED THEN
+                    INSERT (id, nameUzLatn, soato)
+                    VALUES (source.id, source.nameUzLatn, source.soato);
+                """
+                cursor.execute(merge_query, row['id'], row['nameUzLatn'], row['soato'])
                 conn.commit()
             except Exception as e:
-                # Agar ON DUPLICATE KEY UPDATE sintaksisi SQL Serverda ishlamasa, quyidagi MERGE varianti kerak bo'ladi
                 print(f"❌ Xato qator id={row['id']}: {e}")
 
         print(f"✅ {len(df)} ta qator DB ga yozildi yoki yangilandi.")
