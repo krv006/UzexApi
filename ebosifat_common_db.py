@@ -1,5 +1,4 @@
 import traceback
-
 import pandas as pd
 import pyodbc
 import requests
@@ -41,6 +40,7 @@ def insert_to_db(df):
         )
         cursor = conn.cursor()
 
+        # Jadval mavjud bo'lmasa yaratamiz
         create_query = """
         IF OBJECT_ID('dbo.Common', 'U') IS NULL
         CREATE TABLE dbo.Common (
@@ -55,15 +55,19 @@ def insert_to_db(df):
         for idx, row in df.iterrows():
             try:
                 cursor.execute("""
-                    INSERT INTO dbo.Common (id, nameUzLatn, soato)
-                    VALUES (?, ?, ?)
-                """, row['id'], row['nameUzLatn'], row['soato'])
+                    MERGE dbo.Common AS target
+                    USING (SELECT ? AS id, ? AS nameUzLatn, ? AS soato) AS source
+                    ON target.id = source.id
+                    WHEN MATCHED THEN 
+                        UPDATE SET nameUzLatn = source.nameUzLatn, soato = source.soato
+                    WHEN NOT MATCHED THEN
+                        INSERT (id, nameUzLatn, soato) VALUES (source.id, source.nameUzLatn, source.soato);
+                """, row['id'], row['nameUzLatn'], str(row['soato']))
                 conn.commit()
-                print(f"✅ id={row['id']} yozildi")
             except Exception as e:
                 print(f"❌ id={row['id']} yozishda xato: {e}")
 
-        print(f"✅ {len(df)} ta qator DB ga yozildi.")
+        print(f"✅ {len(df)} ta qator DB ga yozildi yoki yangilandi.")
     except Exception:
         print("❌ Umumiy DB xatolik:")
         traceback.print_exc()
