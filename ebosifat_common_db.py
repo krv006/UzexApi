@@ -1,4 +1,5 @@
 import traceback
+import time
 import pandas as pd
 import pyodbc
 import requests
@@ -10,20 +11,27 @@ HEADERS = {
     'Authorization': f'Token {TOKEN}'
 }
 
-
-def fetch_regions(url, headers):
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"❌ Xatolik yuz berdi: {response.status_code} - {response.text}")
-        return None
-
+def fetch_regions(url, headers, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=10)  # 10 soniya kutadi
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"❌ Xatolik yuz berdi: {response.status_code} - {response.text}")
+                return None
+        except requests.exceptions.Timeout:
+            print(f"⏳ So'rov vaqti tugadi, {delay} soniyadan keyin qayta uriniladi... ({attempt+1}/{retries})")
+            time.sleep(delay)
+        except requests.exceptions.RequestException as e:
+            print(f"❌ So'rovda umumiy xato yuz berdi: {e}")
+            return None
+    print("❌ Serverga ulanishda xatoliklar davom etdi. Iltimos, keyinroq urinib ko‘ring.")
+    return None
 
 def prepare_dataframe(data):
     df = pd.DataFrame(data)
     return df[['id', 'nameUzLatn', 'soato']]
-
 
 def insert_to_db(df):
     print("🗃️ SQL Serverga yozish jarayoni boshlandi...")
@@ -42,30 +50,30 @@ def insert_to_db(df):
 
         # Jadval mavjud bo'lmasa yaratamiz
         create_query = """
-        IF OBJECT_ID('dbo.Common', 'U') IS NULL
-        CREATE TABLE dbo.Common (
+        IF OBJECT_ID('dbo.Regions', 'U') IS NULL
+        CREATE TABLE dbo.Regions (
             id INT PRIMARY KEY,
             nameUzLatn NVARCHAR(500),
-            soato NVARCHAR(50)
+            soato INT
         )
         """
         cursor.execute(create_query)
         conn.commit()
 
+        # Malumotlarni INSERT INTO qilib yozamiz
         for idx, row in df.iterrows():
             try:
                 cursor.execute("""
-                    MERGE dbo.Common AS target
-                    USING (SELECT ? AS id, ? AS nameUzLatn, ? AS soato) AS source
-                    ON target.id = source.id
-                    WHEN MATCHED THEN 
-                        UPDATE SET nameUzLatn = source.nameUzLatn, soato = source.soato
-                    WHEN NOT MATCHED THEN
-                        INSERT (id, nameUzLatn, soato) VALUES (source.id, source.nameUzLatn, source.soato);
-                """, row['id'], row['nameUzLatn'], str(row['soato']))
+                    INSERT INTO dbo.Regions (id, nameUzLatn, soato)
+                    VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        nameUzLatn = VALUES(nameUzLatn),
+                        soato = VALUES(soato)
+                """, row['id'], row['nameUzLatn'], row['soato'])
                 conn.commit()
             except Exception as e:
-                print(f"❌ id={row['id']} yozishda xato: {e}")
+                # Agar ON DUPLICATE KEY UPDATE sintaksisi SQL Serverda ishlamasa, quyidagi MERGE varianti kerak bo'ladi
+                print(f"❌ Xato qator id={row['id']}: {e}")
 
         print(f"✅ {len(df)} ta qator DB ga yozildi yoki yangilandi.")
     except Exception:
@@ -77,14 +85,12 @@ def insert_to_db(df):
         if conn:
             conn.close()
 
-
 def main():
     data = fetch_regions(URL, HEADERS)
     if data:
         df = prepare_dataframe(data)
         print(df.head())
         insert_to_db(df)
-
 
 if __name__ == "__main__":
     main()
