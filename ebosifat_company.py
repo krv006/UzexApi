@@ -2,18 +2,24 @@ import pandas as pd
 import requests
 
 TOKEN = "dbb9da12883a37250c4e2fec15591b8de0d2cea0"
-
 BASE_URL = "https://ebiosifat.uz/api/v1/company/list/"
-
 
 def extract_company_products(item):
     director = item.get("director_profile") or {}
+
+    didox_region = item.get("didox_region") or {}
+    didox_city = item.get("didox_city") or {}
 
     company_info = {
         "company_id": item.get("id"),
         "update_id": item.get("update_id"),
         "company_name": item.get("name"),
         "tin_number": item.get("tin_number"),
+        "didox_region": didox_region.get("nameUzLatn"),
+        "didox_region_code": didox_region.get("soato"),
+        "didox_city": didox_city.get("nameUzLatn"),
+        "didox_city_code": didox_city.get("soato"),
+        "didox_city_region": didox_city.get("region"),
         "director_name": director.get("full_name"),
         "director_phone": director.get("phone_number"),
         "certificate": item.get("certificate"),
