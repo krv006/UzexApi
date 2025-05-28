@@ -1,55 +1,62 @@
-import requests
 import pandas as pd
 import pyodbc
+import requests
 
-# 1. SQL ulanish
+BASE_URL = "http://ebiosifat.uz:8003/api/v1/company/list/"
+TOKEN = "dbb9da12883a37250c4e2fec15591b8de0d2cea0"
+
+HEADERS = {
+    "Authorization": f"Token {TOKEN}"
+}
+
 conn = pyodbc.connect(
     'DRIVER={SQL Server};SERVER=192.168.111.14;DATABASE=karantindb;UID=sa;PWD=AX8wFfMQrR6b9qdhHt2eYS'
 )
 cursor = conn.cursor()
 
-# 2. Jadval yaratiladi (agar mavjud bo'lmasa)
 cursor.execute("""
-IF OBJECT_ID('dbo.Companies', 'U') IS NULL
-CREATE TABLE dbo.Companies (
-    company_id INT,
-    update_id INT,
-    company_name NVARCHAR(MAX),
-    tin_number NVARCHAR(MAX),
-    region_name NVARCHAR(MAX),
-    region_id INT,
-    district_name NVARCHAR(MAX),
-    district_id INT,
-    director_name NVARCHAR(MAX),
-    director_phone NVARCHAR(MAX),
-    certificate NVARCHAR(MAX),
-    technical_passport NVARCHAR(MAX),
-    product_id INT,
-    product_name NVARCHAR(MAX),
-    product_code NVARCHAR(MAX),
-    product_description NVARCHAR(MAX),
-    product_amount BIGINT,
-    product_unit NVARCHAR(MAX),
-    product_costs NVARCHAR(MAX),
-    CONSTRAINT PK_Companies PRIMARY KEY (company_id, product_id)
-)
+IF OBJECT_ID('dbo.Companies_test', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Companies_test (
+        company_id INT,
+        update_id INT,
+        company_name NVARCHAR(MAX),
+        tin_number NVARCHAR(MAX),
+        region_name NVARCHAR(MAX),
+        region_id INT,
+        district_name NVARCHAR(MAX),
+        district_id INT,
+        director_name NVARCHAR(MAX),
+        director_phone NVARCHAR(MAX),
+        certificate NVARCHAR(MAX),
+        technical_passport NVARCHAR(MAX),
+        product_id INT,
+        product_name NVARCHAR(MAX),
+        product_code NVARCHAR(MAX),
+        product_description NVARCHAR(MAX),
+        product_amount BIGINT,
+        product_unit NVARCHAR(MAX),
+        product_costs NVARCHAR(MAX),
+        CONSTRAINT PK_Companies PRIMARY KEY (company_id, product_id)
+    )
+END
 """)
 conn.commit()
 
-# 3. API dan ma’lumotni olish
+
 def get_api_data():
-    response = requests.get("https://ebiosifat.uz/api/company/get-companies")
+    response = requests.get(BASE_URL, headers=HEADERS)
     if response.status_code == 200:
         data = response.json()
         return pd.DataFrame(data)
     else:
-        raise Exception(f"API Error: {response.status_code}")
+        raise Exception(f"API Error: {response.status_code} - {response.text}")
 
-# 4. Ma'lumotlarni SQL Server`ga yozish
+
 def save_to_db(df):
     for _, row in df.iterrows():
         cursor.execute("""
-            MERGE dbo.Companies AS target
+            MERGE dbo.Companies_test AS target
             USING (SELECT ? AS company_id, ? AS update_id, ? AS company_name, ? AS tin_number,
                           ? AS region_name, ? AS region_id, ? AS district_name, ? AS district_id,
                           ? AS director_name, ? AS director_phone, ? AS certificate, ? AS technical_passport,
@@ -88,13 +95,13 @@ def save_to_db(df):
                         source.product_id, source.product_name, source.product_code, source.product_description,
                         source.product_amount, source.product_unit, source.product_costs);
         """, row["company_id"], row["update_id"], row["company_name"], row["tin_number"],
-             row["region_name"], row["region_id"], row["district_name"], row["district_id"],
-             row["director_name"], row["director_phone"], row["certificate"], row["technical_passport"],
-             row["product_id"], row["product_name"], row["product_code"], row["product_description"],
-             row["product_amount"], row["product_unit"], row["product_costs"])
+                       row["region_name"], row["region_id"], row["district_name"], row["district_id"],
+                       row["director_name"], row["director_phone"], row["certificate"], row["technical_passport"],
+                       row["product_id"], row["product_name"], row["product_code"], row["product_description"],
+                       row["product_amount"], row["product_unit"], row["product_costs"])
     conn.commit()
 
-# 5. Ishga tushirish
+
 if __name__ == "__main__":
     df = get_api_data()
     save_to_db(df)
