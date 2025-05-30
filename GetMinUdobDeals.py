@@ -1,12 +1,13 @@
 import json
-import subprocess
-import pandas as pd
-import pyodbc
 import os
+import subprocess
 from datetime import datetime, timedelta
 
-# CSV fayl nomi
+import pandas as pd
+import pyodbc
+
 CSV_FILENAME = "GetMinUdobDeals.csv"
+
 
 def fetch_data_with_curl(api_url, auth_token):
     print(f"🌐 So‘rov yuborilmoqda: {api_url}")
@@ -23,6 +24,7 @@ def fetch_data_with_curl(api_url, auth_token):
         print(f"❌ API xatolik: {e}")
         return None
 
+
 def save_to_csv(df):
     if df is not None and not df.empty:
         file_exists = os.path.isfile(CSV_FILENAME)
@@ -30,6 +32,7 @@ def save_to_csv(df):
         print(f"📁 Ma'lumotlar CSV faylga saqlandi: {CSV_FILENAME}")
     else:
         print("⚠️ Saqlash uchun ma'lumotlar mavjud emas.")
+
 
 def save_to_dataframe(data):
     if data:
@@ -50,6 +53,7 @@ def save_to_dataframe(data):
         print("🚫 Ma’lumot yo‘q.")
         return None
 
+
 def insert_to_db(df, batch_size=500):
     print("🗃️ SQL Serverga yozish jarayoni boshlandi...")
     try:
@@ -66,7 +70,7 @@ def insert_to_db(df, batch_size=500):
         create_query = """
         IF OBJECT_ID('dbo.GetMinUdobDealsFull', 'U') IS NULL
         CREATE TABLE dbo.GetMinUdobDealsFull (
-            deal_number INT,
+            deal_number INT PRIMARY KEY,
             deal_date DATETIME,
             deal_type INT,
             contract_number NVARCHAR(500),
@@ -98,7 +102,26 @@ def insert_to_db(df, batch_size=500):
         cursor.execute(create_query)
         conn.commit()
 
-        # Ustunlar to‘liq bo‘lishi uchun tekshiruv
+        # mavjud deal_number larni olish
+        existing_ids = pd.read_sql("SELECT deal_number FROM dbo.GetMinUdobDealsFull", conn)
+        df = df[~df["deal_number"].isin(existing_ids["deal_number"])]
+
+        if df.empty:
+            print("📭 Yangi yoziladigan qator yo‘q.")
+            cursor.close()
+            conn.close()
+            return
+
+        df = df.fillna("")
+        df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
+
+        numeric_cols = [
+            "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost",
+            "deal_currency", "register_id", "amount", "startingpricefrombill", "productamountbycoefficient"
+        ]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
         expected_columns = [
             'deal_number', 'deal_date', 'deal_type', 'contract_number', 'seller_name',
             'seller_tin', 'seller_region', 'seller_district', 'product_name', 'deal_amount',
@@ -110,16 +133,6 @@ def insert_to_db(df, batch_size=500):
         for col in expected_columns:
             if col not in df.columns:
                 df[col] = ""
-
-        df = df.fillna("")
-        df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
-
-        numeric_cols = [
-            "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost",
-            "deal_currency", "register_id", "amount", "startingpricefrombill", "productamountbycoefficient"
-        ]
-        for col in numeric_cols:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
         records = df[expected_columns].values.tolist()
         cursor.fast_executemany = True
@@ -135,11 +148,12 @@ def insert_to_db(df, batch_size=500):
             conn.commit()
             total += len(batch)
 
-        print(f"✅ {total} ta qator DB ga yozildi.")
+        print(f"✅ {total} ta yangi qator DB ga yozildi.")
         cursor.close()
         conn.close()
     except Exception as e:
         print(f"❌ DB xatolik: {e}")
+
 
 def month_range(start_date, end_date):
     current = start_date
@@ -151,6 +165,7 @@ def month_range(start_date, end_date):
             end = current.replace(month=current.month + 1, day=1) - timedelta(days=1)
         yield start, end
         current = end + timedelta(days=1)
+
 
 if __name__ == "__main__":
     print("🚀 Oylik yuklash jarayoni boshlandi...")

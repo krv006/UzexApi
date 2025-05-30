@@ -5,6 +5,7 @@ import pyodbc
 import requests
 
 AUTH_TOKEN = "Credential Y3VzdG9tc1VzZXI6Q3UkdDBtc1BAdGh3b3Jk"
+CSV_FILENAME = "GetMinUdobDealsShort.csv"
 
 
 def fetch_data(api_url, auth_token):
@@ -13,7 +14,7 @@ def fetch_data(api_url, auth_token):
         "Authorization": auth_token
     }
     try:
-        response = requests.get(api_url, headers=headers, timeout=180)  # 3 daqiqa timeout
+        response = requests.get(api_url, headers=headers, timeout=180)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -21,14 +22,14 @@ def fetch_data(api_url, auth_token):
         return None
 
 
-def save_to_csv(data, filename="GetMinUdobDealsShort.csv"):
+def save_to_csv(data):
     if data:
         try:
             if isinstance(data, dict):
                 data = [data]
             df = pd.DataFrame(data)
-            df.to_csv(filename, index=False, encoding="utf-8-sig")
-            print(f"📁 CSV saqlandi: {filename}")
+            df.to_csv(CSV_FILENAME, index=False, encoding="utf-8-sig")
+            print(f"📁 CSV saqlandi: {CSV_FILENAME}")
             return df
         except Exception as e:
             print(f"❌ CSV yozishda xatolik: {e}")
@@ -51,10 +52,11 @@ def insert_udob_deals_to_db(df, batch_size=500):
         )
         cursor = conn.cursor()
 
+        # Jadvalni yaratish (agar yo'q bo'lsa)
         create_query = """
         IF OBJECT_ID('dbo.GetMinUdobDealsShort', 'U') IS NULL
         CREATE TABLE dbo.GetMinUdobDealsShort (
-            deal_number INT,
+            deal_number INT PRIMARY KEY,
             deal_date DATETIME,
             deal_type INT,
             contract_number NVARCHAR(500),
@@ -73,17 +75,18 @@ def insert_udob_deals_to_db(df, batch_size=500):
             buyer_region NVARCHAR(500),
             register_id INT,
             deal_url NVARCHAR(500),
-            tnved NVARCHAR(500) NULL
+            tnved NVARCHAR(500)
         )
         """
         cursor.execute(create_query)
 
+        # Ma'lumotni tayyorlash
         df = df.fillna("")
-        df["deal_date"] = pd.to_datetime(df["deal_date"], format="%m/%d/%Y %H:%M:%S", errors="coerce")
+        df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
 
         numeric_cols = [
-            "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost", "deal_currency",
-            "register_id"
+            "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost",
+            "deal_currency", "register_id"
         ]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -91,6 +94,14 @@ def insert_udob_deals_to_db(df, batch_size=500):
         if "tnved" not in df.columns:
             df["tnved"] = ""
 
+        # Eskilarni olib tashlash
+        existing_ids = pd.read_sql("SELECT deal_number FROM dbo.GetMinUdobDealsShort", conn)
+        df = df[~df["deal_number"].isin(existing_ids["deal_number"])]
+        if df.empty:
+            print("📭 Yangi yoziladigan qator yo‘q.")
+            return
+
+        # Yozish
         records = df[[
             "deal_number", "deal_date", "deal_type", "contract_number", "seller_name",
             "seller_tin", "seller_region", "seller_district", "product_name", "deal_amount",
@@ -99,7 +110,6 @@ def insert_udob_deals_to_db(df, batch_size=500):
         ]].values.tolist()
 
         cursor.fast_executemany = True
-
         total = 0
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
@@ -110,7 +120,7 @@ def insert_udob_deals_to_db(df, batch_size=500):
                     amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
                     buyer_name, buyer_region, register_id, deal_url, tnved
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, batch)
             total += len(batch)
             print(f"📥 {total} qator yozildi...")
@@ -134,8 +144,7 @@ if __name__ == "__main__":
     all_data = []
     for single_date in daterange(BEGINDATE, ENDDATE):
         start_str = single_date.strftime("%Y-%m-%d")
-        end_str = start_str  # kunlik oralik
-        api_url = f"http://172.16.14.21:4041/GetMinUdobDealsShort/{start_str}/{end_str}"
+        api_url = f"http://172.16.14.21:4041/GetMinUdobDealsShort/{start_str}/{start_str}"
         print(f"🔄 {start_str} dan ma’lumot olinmoqda...")
         data = fetch_data(api_url, AUTH_TOKEN)
         if data:
