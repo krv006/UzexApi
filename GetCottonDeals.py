@@ -1,8 +1,9 @@
 import json
 import subprocess
+from datetime import datetime
+
 import pandas as pd
 import pyodbc
-from datetime import datetime
 
 
 def fetch_data_with_curl(api_url, auth_token):
@@ -55,7 +56,7 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         create_query = """
         IF OBJECT_ID('dbo.CottonDeals', 'U') IS NULL
         CREATE TABLE dbo.CottonDeals (
-            deal_number INT,
+            deal_number INT PRIMARY KEY,
             deal_date DATETIME,
             deal_type INT,
             contract_number NVARCHAR(500),
@@ -73,8 +74,7 @@ def insert_cotton_deals_to_db(df, batch_size=500):
             buyer_name NVARCHAR(500),
             buyer_region NVARCHAR(500),
             register_id INT,
-            deal_url NVARCHAR(500),
-            tnved NVARCHAR(500)
+            deal_url NVARCHAR(500)
         )
         """
         cursor.execute(create_query)
@@ -90,10 +90,25 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
+        df["deal_number"] = df["deal_number"].astype(int)
+
+        df = df.drop_duplicates(subset=['deal_number'])
+
+        existing_deals = pd.read_sql("SELECT deal_number FROM dbo.CottonDeals", conn)
+        existing_deals_set = set(existing_deals["deal_number"].astype(int))
+
+        df = df[~df["deal_number"].isin(existing_deals_set)]
+
+        if df.empty:
+            print("📭 Yangi yoziladigan deal_number yo‘q, barcha ma’lumotlar DBda mavjud.")
+            cursor.close()
+            conn.close()
+            return
+
         records = df.values.tolist()
         cursor.fast_executemany = True
 
-        total = 0
+        total_inserted = 0
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             try:
@@ -102,18 +117,19 @@ def insert_cotton_deals_to_db(df, batch_size=500):
                         deal_number, deal_date, deal_type, contract_number, seller_name,
                         seller_tin, seller_region, seller_district, product_name, deal_amount,
                         amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
-                        buyer_name, buyer_region, register_id, deal_url, tnved
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        buyer_name, buyer_region, register_id, deal_url
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, batch)
                 conn.commit()
-                total += len(batch)
-                print(f"📥 {total} qator qo‘shildi...")
+                total_inserted += len(batch)
+                print(f"📥 {total_inserted} qator qo‘shildi...")
             except Exception as batch_error:
                 print(f"⚠️ Batch skip qilindi: {batch_error}")
 
-        print(f"✅ Jami {total} qator CottonDeals ga yozildi.")
+        print(f"✅ Jami {total_inserted} qator CottonDeals ga yozildi.")
         cursor.close()
         conn.close()
+
     except Exception as e:
         print(f"❌ CottonDeals DB xatolik: {e}")
 
