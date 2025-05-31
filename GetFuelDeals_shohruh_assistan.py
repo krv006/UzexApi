@@ -97,9 +97,9 @@ def prepare_staging_table(cursor):
 
 def prepare_test_table(cursor):
     cursor.execute("""
-    IF OBJECT_ID('dbo.test_FuelDeals', 'U') IS NULL
+    IF OBJECT_ID('dbo.FuelDeals', 'U') IS NULL
     BEGIN
-        CREATE TABLE dbo.test_FuelDeals (
+        CREATE TABLE dbo.FuelDeals (
             deal_number INT,
             deal_date DATETIME,
             deal_type INT,
@@ -159,7 +159,7 @@ def insert_into_staging(cursor, df):
 
 def merge_to_main_table(cursor):
     merge_sql = """
-    MERGE dbo.test_FuelDeals WITH (HOLDLOCK) AS Target
+    MERGE dbo.FuelDeals WITH (HOLDLOCK) AS Target
     USING dbo.FuelDeals_Staging AS Src
     ON Target.deal_number = Src.deal_number AND Target.deal_date = Src.deal_date
     WHEN MATCHED THEN
