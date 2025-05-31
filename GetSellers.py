@@ -1,6 +1,5 @@
 import json
 import subprocess
-
 import pandas as pd
 import pyodbc
 
@@ -73,7 +72,6 @@ def insert_sellers_to_db(df, batch_size=500):
         cursor.execute(create_query)
         conn.commit()
 
-        # Tozalash va data tiplari
         df["farmer_name"] = df["farmer_name"].astype(str)
         df["farmer_tin"] = df["farmer_tin"].astype(str)
         df["farmer_region"] = pd.to_numeric(df["farmer_region"], errors="coerce").fillna(0).astype(int)
@@ -90,22 +88,23 @@ def insert_sellers_to_db(df, batch_size=500):
 
         df = df.fillna("")
 
-        # Mavjud farmer_tin larni olish va yangi qatorlarni filtr qilish
+        df = df.drop_duplicates(subset=['farmer_tin'])
+
         existing_tins = pd.read_sql("SELECT farmer_tin FROM dbo.GetSellers", conn)
         existing_tins_set = set(existing_tins["farmer_tin"].astype(str))
 
         df = df[~df["farmer_tin"].isin(existing_tins_set)]
 
         if df.empty:
-            print("📭 Yangi yoziladigan farmer_tin topilmadi, barcha ma'lumotlar DBda mavjud.")
+            print("📭 Yangi yoziladigan farmer_tin yo‘q, barcha ma’lumotlar DBda mavjud.")
             cursor.close()
             conn.close()
             return
 
         records = df.values.tolist()
         cursor.fast_executemany = True
-        total_inserted = 0
 
+        total_inserted = 0
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             try:
@@ -125,6 +124,7 @@ def insert_sellers_to_db(df, batch_size=500):
         print(f"✅ Jami {total_inserted} qator Sellers jadvaliga qo‘shildi.")
         cursor.close()
         conn.close()
+
     except Exception as e:
         print(f"❌ Sellers DB xatolik: {e}")
 
