@@ -52,7 +52,7 @@ def insert_udob_deals_to_db(df, batch_size=500):
         )
         cursor = conn.cursor()
 
-        # Jadvalni yaratish (agar yo'q bo'lsa)
+        # Jadvalni yaratish (agar mavjud bo'lmasa)
         create_query = """
         IF OBJECT_ID('dbo.GetMinUdobDealsShort', 'U') IS NULL
         CREATE TABLE dbo.GetMinUdobDealsShort (
@@ -75,18 +75,18 @@ def insert_udob_deals_to_db(df, batch_size=500):
             buyer_region NVARCHAR(500),
             register_id INT,
             deal_url NVARCHAR(500),
+            amount FLOAT,
             tnved NVARCHAR(500)
         )
         """
         cursor.execute(create_query)
 
-        # Ma'lumotni tayyorlash
         df = df.fillna("")
         df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
 
         numeric_cols = [
             "deal_number", "deal_type", "deal_amount", "deal_price", "deal_cost",
-            "deal_currency", "register_id"
+            "deal_currency", "register_id", "amount"
         ]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -94,19 +94,17 @@ def insert_udob_deals_to_db(df, batch_size=500):
         if "tnved" not in df.columns:
             df["tnved"] = ""
 
-        # Eskilarni olib tashlash
         existing_ids = pd.read_sql("SELECT deal_number FROM dbo.GetMinUdobDealsShort", conn)
         df = df[~df["deal_number"].isin(existing_ids["deal_number"])]
         if df.empty:
             print("📭 Yangi yoziladigan qator yo‘q.")
             return
 
-        # Yozish
         records = df[[
             "deal_number", "deal_date", "deal_type", "contract_number", "seller_name",
             "seller_tin", "seller_region", "seller_district", "product_name", "deal_amount",
             "amount_unit", "deal_price", "deal_cost", "deal_currency", "buyer_tin",
-            "buyer_name", "buyer_region", "register_id", "deal_url", "tnved"
+            "buyer_name", "buyer_region", "register_id", "deal_url", "amount", "tnved"
         ]].values.tolist()
 
         cursor.fast_executemany = True
@@ -118,7 +116,7 @@ def insert_udob_deals_to_db(df, batch_size=500):
                     deal_number, deal_date, deal_type, contract_number, seller_name,
                     seller_tin, seller_region, seller_district, product_name, deal_amount,
                     amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
-                    buyer_name, buyer_region, register_id, deal_url, tnved
+                    buyer_name, buyer_region, register_id, deal_url, amount, tnved
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, batch)
