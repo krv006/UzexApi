@@ -1,5 +1,6 @@
 import json
 import subprocess
+
 import pandas as pd
 import pyodbc
 
@@ -39,7 +40,7 @@ def save_to_csv(data, filename="GetSellers.csv"):
         return None
 
 
-def insert_sellers_to_db(df, batch_size=500):  # 🚀 Yangi: batching
+def insert_sellers_to_db(df, batch_size=500):
     try:
         conn = pyodbc.connect(
             "DRIVER={SQL Server};"
@@ -51,12 +52,11 @@ def insert_sellers_to_db(df, batch_size=500):  # 🚀 Yangi: batching
         )
         cursor = conn.cursor()
 
-        # 🏗️ Jadval yaratish (agar mavjud bo'lmasa)
         create_query = """
         IF OBJECT_ID('dbo.GetSellers', 'U') IS NULL
         CREATE TABLE dbo.GetSellers (
             farmer_name NVARCHAR(500),
-            farmer_tin NVARCHAR(500),
+            farmer_tin NVARCHAR(500) PRIMARY KEY,
             farmer_region INT,
             farmer_district INT,
             norm_amount FLOAT,
@@ -73,7 +73,7 @@ def insert_sellers_to_db(df, batch_size=500):  # 🚀 Yangi: batching
         cursor.execute(create_query)
         conn.commit()
 
-        # 🧼 Clean data
+        # Tozalash va data tiplari
         df["farmer_name"] = df["farmer_name"].astype(str)
         df["farmer_tin"] = df["farmer_tin"].astype(str)
         df["farmer_region"] = pd.to_numeric(df["farmer_region"], errors="coerce").fillna(0).astype(int)
@@ -89,23 +89,38 @@ def insert_sellers_to_db(df, batch_size=500):  # 🚀 Yangi: batching
         df["volume_type"] = pd.to_numeric(df["volume_type"], errors="coerce").fillna(0).astype(int)
 
         df = df.fillna("")
-        records = df.values.tolist()
 
-        # 🚀 Bulk insert in batches
-        total_inserted = 0
+        # Mavjud farmer_tin larni olish va yangi qatorlarni filtr qilish
+        existing_tins = pd.read_sql("SELECT farmer_tin FROM dbo.GetSellers", conn)
+        existing_tins_set = set(existing_tins["farmer_tin"].astype(str))
+
+        df = df[~df["farmer_tin"].isin(existing_tins_set)]
+
+        if df.empty:
+            print("📭 Yangi yoziladigan farmer_tin topilmadi, barcha ma'lumotlar DBda mavjud.")
+            cursor.close()
+            conn.close()
+            return
+
+        records = df.values.tolist()
         cursor.fast_executemany = True
+        total_inserted = 0
+
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
-            cursor.executemany("""
-                INSERT INTO dbo.GetSellers (
-                    farmer_name, farmer_tin, farmer_region, farmer_district, norm_amount,
-                    amount_unit, extra_amount, crop_id, hectare, productivity,
-                    contract_id, harvest_year, volume_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, batch)
-            conn.commit()
-            total_inserted += len(batch)
-            print(f"📥 {total_inserted} qator qo‘shildi...")
+            try:
+                cursor.executemany("""
+                    INSERT INTO dbo.GetSellers (
+                        farmer_name, farmer_tin, farmer_region, farmer_district, norm_amount,
+                        amount_unit, extra_amount, crop_id, hectare, productivity,
+                        contract_id, harvest_year, volume_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, batch)
+                conn.commit()
+                total_inserted += len(batch)
+                print(f"📥 {total_inserted} qator qo‘shildi...")
+            except Exception as batch_error:
+                print(f"⚠️ Batch o'tkazib yuborildi: {batch_error}")
 
         print(f"✅ Jami {total_inserted} qator Sellers jadvaliga qo‘shildi.")
         cursor.close()
