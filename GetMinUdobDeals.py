@@ -96,13 +96,13 @@ def insert_to_db(df, batch_size=500):
             productunit NVARCHAR(500),
             productgroup NVARCHAR(500),
             productsubgroup NVARCHAR(500),
-            statline NVARCHAR(500)
+            statline NVARCHAR(500),
+            tnved NVARCHAR(500)
         )
         """
         cursor.execute(create_query)
         conn.commit()
 
-        # mavjud deal_number larni olish
         existing_ids = pd.read_sql("SELECT deal_number FROM dbo.GetMinUdobDealsFull", conn)
         df = df[~df["deal_number"].isin(existing_ids["deal_number"])]
 
@@ -128,7 +128,7 @@ def insert_to_db(df, batch_size=500):
             'amount_unit', 'deal_price', 'deal_cost', 'deal_currency', 'buyer_tin',
             'buyer_name', 'buyer_region', 'register_id', 'deal_url', 'amount',
             'startingpricefrombill', 'productamountbycoefficient', 'segmentgruppa',
-            'productunit', 'productgroup', 'productsubgroup', 'statline'
+            'productunit', 'productgroup', 'productsubgroup', 'statline', 'tnved'
         ]
         for col in expected_columns:
             if col not in df.columns:
