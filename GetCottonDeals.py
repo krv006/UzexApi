@@ -53,39 +53,47 @@ def insert_cotton_deals_to_db(df, batch_size=500):
         )
         cursor = conn.cursor()
 
+        # Create the table if not exists, and ensure column names match the API response
         create_query = """
         IF OBJECT_ID('dbo.CottonDeals', 'U') IS NULL
         CREATE TABLE dbo.CottonDeals (
             deal_number INT PRIMARY KEY,
             deal_date DATETIME,
             deal_type INT,
-            contract_number NVARCHAR(500),
+            contract_number INT,
             seller_name NVARCHAR(500),
             seller_tin NVARCHAR(500),
-            seller_region NVARCHAR(500),
-            seller_district NVARCHAR(500),
+            seller_region INT,
+            seller_district INT,
             product_name NVARCHAR(500),
             deal_amount FLOAT,
-            amount_unit NVARCHAR(500),
+            amount_unit NVARCHAR(100),
             deal_price FLOAT,
             deal_cost FLOAT,
             deal_currency INT,
             buyer_tin NVARCHAR(500),
             buyer_name NVARCHAR(500),
-            buyer_region NVARCHAR(500),
+            buyer_region INT,
             register_id INT,
-            deal_url NVARCHAR(500)
+            deal_url NVARCHAR(500),
+            status INT
         )
         """
         cursor.execute(create_query)
         conn.commit()
 
         df = df.fillna("")
+
+        # Convert deal_date to datetime format
         df["deal_date"] = pd.to_datetime(df["deal_date"], errors="coerce")
 
+        # Convert status to numeric, replace invalid values with 0
+        df["status"] = pd.to_numeric(df["status"], errors="coerce").fillna(0)
+
+        # Convert numeric columns
         numeric_cols = [
             "deal_number", "deal_type", "deal_amount", "deal_price",
-            "deal_cost", "deal_currency", "register_id"
+            "deal_cost", "deal_currency", "register_id", "seller_region", "seller_district", "buyer_region"
         ]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -94,6 +102,7 @@ def insert_cotton_deals_to_db(df, batch_size=500):
 
         df = df.drop_duplicates(subset=['deal_number'])
 
+        # Check for existing deals in the database
         existing_deals = pd.read_sql("SELECT deal_number FROM dbo.CottonDeals", conn)
         existing_deals_set = set(existing_deals["deal_number"].astype(int))
 
@@ -105,7 +114,12 @@ def insert_cotton_deals_to_db(df, batch_size=500):
             conn.close()
             return
 
-        records = df.values.tolist()
+        # Prepare records for insertion
+        records = df[['deal_number', 'deal_date', 'deal_type', 'contract_number', 'seller_name',
+                      'seller_tin', 'seller_region', 'seller_district', 'product_name', 'deal_amount',
+                      'amount_unit', 'deal_price', 'deal_cost', 'deal_currency', 'buyer_tin', 'buyer_name',
+                      'buyer_region', 'register_id', 'deal_url', 'status']].values.tolist()
+
         cursor.fast_executemany = True
 
         total_inserted = 0
@@ -117,8 +131,8 @@ def insert_cotton_deals_to_db(df, batch_size=500):
                         deal_number, deal_date, deal_type, contract_number, seller_name,
                         seller_tin, seller_region, seller_district, product_name, deal_amount,
                         amount_unit, deal_price, deal_cost, deal_currency, buyer_tin,
-                        buyer_name, buyer_region, register_id, deal_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        buyer_name, buyer_region, register_id, deal_url, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, batch)
                 conn.commit()
                 total_inserted += len(batch)
